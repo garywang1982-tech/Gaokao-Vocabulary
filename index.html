@@ -38,6 +38,15 @@ select,input{border:1px solid var(--line);border-radius:14px;padding:10px;backgr
 .opt{border:1px solid var(--line);background:#f8fbff;border-radius:16px;padding:12px;cursor:pointer;text-align:left}
 .opt.selected{border-color:var(--blue);box-shadow:0 0 0 3px rgba(50,103,214,.15)}
 .opt.correct{background:#e9f8f1;border-color:var(--green)}.opt.wrong{background:#fff0f0;border-color:var(--red)}
+.word-bank{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:14px 0}
+.bank-item{border:1px solid var(--line);border-radius:14px;background:#f8fbff;padding:10px 12px;line-height:1.35}
+.bank-letter{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#e5efff;color:#21446d;font-weight:800;margin-right:8px}
+.cloze-choices{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.letter-btn{width:42px;height:38px;border:1px solid var(--line);border-radius:12px;background:#f8fbff;color:#21446d;cursor:pointer;font-weight:800}
+.letter-btn.selected{border-color:var(--blue);box-shadow:0 0 0 3px rgba(50,103,214,.15)}
+.letter-btn.correct{background:#e9f8f1;border-color:var(--green);color:#166143}
+.letter-btn.wrong{background:#fff0f0;border-color:var(--red);color:#a53b3b}
+.cloze-answer{margin-top:8px;font-weight:700}
 .match-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:10px 0;align-items:center}
 .badge{display:inline-block;border-radius:999px;background:#eef5ff;color:#315f9b;padding:3px 9px;font-size:12px;margin-left:6px}
 .feedback{min-height:28px;font-weight:700;margin-top:10px}.ok{color:var(--green)}.no{color:var(--red)}
@@ -93,7 +102,7 @@ select,input{border:1px solid var(--line);border-radius:14px;padding:10px;backgr
 
   <section id="view-cloze" class="panel hidden">
     <h2>选词填空练习 <span class="badge">每轮8题</span></h2>
-    <div class="small">从词库中选择最合适的词或词组完成句子。注意语境、搭配和词形。</div>
+    <div class="small">参考顶部词库的字母编号，为每道题选择最合适的词或词组。注意语境、搭配和词形。</div>
     <div class="toolbar">
       <button class="btn primary" onclick="newCloze()">开始/换一轮</button>
       <button class="btn good" onclick="checkCloze()">提交答案</button>
@@ -226,26 +235,55 @@ function checkFill(){
 function newCloze(){
   const pool=EXERCISES;
   clozeRound=sample(pool,8);
-  const bank=shuffle(clozeRound.map(x=>x.blank.answer));
-  $('wordBank').innerHTML=bank.map(w=>`<button class="btn" type="button" data-word="${esc(w)}" onclick="pickWord(this)">${esc(w)}</button>`).join('');
+  const bank=shuffle(clozeRound.map(x=>x.blank.answer)).map((word,i)=>({letter:String.fromCharCode(65+i), word}));
+  const letters=bank.map(x=>x.letter);
+  $('wordBank').className='word-bank';
+  $('wordBank').innerHTML=bank.map(x=>`
+    <div class="bank-item"><span class="bank-letter">${x.letter}.</span> ${esc(x.word)}</div>
+  `).join('');
   $('clozeBox').innerHTML=clozeRound.map((x,i)=>`
     <div class="card" style="margin-bottom:10px">
       <div class="small">${i+1}. ${termLabel(x)}</div>
       <div class="question">${esc(x.blank.sentence)}</div>
-      <input data-answer="${esc(x.blank.answer)}" data-term="${esc(x.term)}" placeholder="从上方词库选择或手动输入">
+      <div class="cloze-choices" data-answer="${esc(x.blank.answer)}" data-term="${esc(x.term)}">
+        ${letters.map(letter=>`<button class="letter-btn" type="button" data-letter="${letter}" onclick="chooseClozeLetter(this)">${letter}</button>`).join('')}
+      </div>
+      <div class="small cloze-answer"></div>
     </div>`).join('');
   $('clozeFeedback').textContent='';
+  $('clozeBox').dataset.bank=JSON.stringify(bank);
 }
-function pickWord(btn){
-  const empty=[...$('clozeBox').querySelectorAll('input')].find(i=>!i.value);
-  if(empty) empty.value=btn.dataset.word;
+function getClozeWord(letter){
+  const bank=JSON.parse($('clozeBox').dataset.bank || '[]');
+  return (bank.find(x=>x.letter===letter) || {}).word || '';
+}
+function chooseClozeLetter(btn){
+  const group=btn.closest('.cloze-choices');
+  group.querySelectorAll('.letter-btn').forEach(b=>b.classList.remove('selected'));
+  btn.classList.add('selected');
+  group.dataset.chosen=btn.dataset.letter;
 }
 function checkCloze(){
   let correct=0;
-  [...$('clozeBox').querySelectorAll('input')].forEach(inp=>{
-    practiced.add(inp.dataset.term); done++;
-    if(clean(inp.value)===clean(inp.dataset.answer)){ correct++; score++; inp.style.borderColor='var(--green)'; }
-    else{ wrongSet.add(inp.dataset.term); inp.style.borderColor='var(--red)'; inp.value=inp.value+'  → 答案：'+inp.dataset.answer; }
+  [...$('clozeBox').querySelectorAll('.cloze-choices')].forEach(group=>{
+    const chosenWord=getClozeWord(group.dataset.chosen);
+    const answer=group.dataset.answer;
+    const answerLetter=JSON.parse($('clozeBox').dataset.bank || '[]').find(x=>clean(x.word)===clean(answer))?.letter || '';
+    practiced.add(group.dataset.term); done++;
+    group.querySelectorAll('.letter-btn').forEach(btn=>{
+      btn.classList.remove('correct','wrong');
+      if(btn.dataset.letter===answerLetter) btn.classList.add('correct');
+      else if(btn.classList.contains('selected')) btn.classList.add('wrong');
+    });
+    const answerBox=group.nextElementSibling;
+    if(clean(chosenWord)===clean(answer)){
+      correct++; score++;
+      answerBox.innerHTML='<span class="ok">正确：</span>'+answerLetter+'. '+esc(answer);
+    }else{
+      wrongSet.add(group.dataset.term);
+      const chosenText=group.dataset.chosen ? group.dataset.chosen+'. '+esc(chosenWord) : '未选择';
+      answerBox.innerHTML='<span class="no">应选：</span>'+answerLetter+'. '+esc(answer)+'　你的答案：'+chosenText;
+    }
   });
   updateStats();
   $('clozeFeedback').innerHTML=`本轮答对 <span class="ok">${correct}</span> / ${clozeRound.length}。`;
